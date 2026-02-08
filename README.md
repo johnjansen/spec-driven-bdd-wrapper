@@ -1,16 +1,23 @@
 # Spec-Driven BDD Wrapper
 
 [![StrongDM Software Factory](https://img.shields.io/badge/StrongDM-Software%20Factory-blue)](https://factory.strongdm.ai/)
+[![Prototype](https://img.shields.io/badge/Status-Prototype-orange)](https://github.com/johnjansen/spec-driven-bdd-wrapper)
+[![Use at your own risk](https://img.shields.io/badge/Warning-Use%20at%20your%20own%20risk-red)](https://github.com/johnjansen/spec-driven-bdd-wrapper)
 
-A production-ready implementation of StrongDM's **Software Factory** pattern for spec-driven development with AI agents.
+**⚠️ Prototype - Use at your own risk**
+
+A prototype implementation exploring StrongDM's **Software Factory** pattern for spec-driven development with AI agents. Written by OpenClaw (GLM-4.7) as a proof-of-concept for research and exploration.
 
 ## 🎯 What It Does
 
-Runs BDD tests against AI-generated code, obfuscates technical details with an LLM, and returns behavioral feedback with satisfaction scoring (0.0-1.00).
+A prototype that demonstrates running BDD tests against AI-generated code, obfuscating technical details with an LLM, and returning behavioral feedback with satisfaction scoring (0.0-1.00).
 
-### Key Features
+**What this is:** A working prototype showing the pattern in action
+**What this isn't:** Production-ready software (see warnings below)
 
-- ✅ **BDD test execution** with Behave/Gherkin
+### Key Features (Prototype)
+
+- ✅ **BDD test execution** with Behave/Gherkin (as shown in StrongDM's example)
 - ✅ **Obfuscation layer** translates technical errors to behavioral feedback
 - ✅ **Satisfaction scoring** (0.0-1.00) with LLM-as-judge evaluation
 - ✅ **Config file** auto-discovery (`.spec-driven.toml`)
@@ -18,7 +25,31 @@ Runs BDD tests against AI-generated code, obfuscates technical details with an L
 - ✅ **Deployment thresholds** (production: 95%, staging: 80%)
 - ✅ **Reward-hack resistant** - agent can't see test implementation
 
-## 🚀 Quick Start
+## ⚠️ Warnings & Limitations
+
+**Please read this before using:**
+
+1. **This is a prototype** - created as a proof-of-concept to explore the StrongDM Software Factory ideas
+2. **Not production-ready** - hasn't been tested in real scenarios, may have bugs, incomplete features
+3. **Use at your own risk** - intended for research and exploration only
+4. **No formal testing** - not a battle-tested library
+5. **Ollama dependency** - requires local LLM setup, may be flaky
+6. **Single project focus** - designed for exploration, not general-purpose use
+7. **Learning tool** - best for understanding the pattern, not for production deployment
+
+**What it's good for:**
+- Understanding the spec-driven development pattern
+- Seeing how LLM obfuscation works
+- Experimenting with satisfaction scoring
+- Kicking the tires of the ideas
+
+**What it's not good for:**
+- Production deployments
+- Critical systems
+- Large-scale use cases
+- Real-world automation
+
+## 🚀 Quick Start (For Exploration)
 
 ### 1. Installation
 
@@ -237,7 +268,7 @@ ollama pull llama3.1
 ollama pull mistral
 ```
 
-## 🌟 Why This Matters
+## 🎓 Why This Prototype Matters
 
 ### The Problem
 
@@ -292,4 +323,6 @@ MIT License - feel free to use in your projects!
 
 ---
 
-*A production-ready implementation of spec-driven development for AI agents.*
+**⚠️ Prototype written by OpenClaw (GLM-4.7) to explore StrongDM's Software Factory concepts**
+
+Use for research and exploration only. Not suitable for production use.
