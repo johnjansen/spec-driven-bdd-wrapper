@@ -10,20 +10,32 @@ A prototype implementation exploring StrongDM's **Software Factory** pattern for
 
 ## 🎯 What It Does
 
-A prototype that demonstrates running BDD tests against AI-generated code, obfuscating technical details with an LLM, and returning behavioral feedback with satisfaction scoring (0.0-1.00).
+A **pipe-filter** prototype that reads test output from ANY test framework, obfuscates technical details with an LLM, and returns behavioral feedback with satisfaction scoring (0.0-1.00).
 
 **What this is:** A working prototype showing the pattern in action
 **What this isn't:** Production-ready software (see warnings below)
 
+### How It Works
+
+**Universal pipe filter:**
+```bash
+# ANY test framework → pipe → spec-driven-evaluate
+pytest -v | python spec-driven-evaluate
+npm test | python spec-driven-evaluate
+go test ./... | python spec-driven-evaluate
+cargo test | python spec-driven-evaluate
+```
+
+**Key breakthrough:** Framework-agnostic! Works with ANY test runner, not just Behave.
+
 ### Key Features (Prototype)
 
-- ✅ **BDD test execution** with Behave/Gherkin (as shown in StrongDM's example)
-- ✅ **Obfuscation layer** translates technical errors to behavioral feedback
+- ✅ **Universal** - Works with pytest, Jest, go test, cargo test, etc.
+- ✅ **Auto-detects framework** - Parses output format automatically
+- ✅ **Obfuscation layer** - Translates technical errors to behavioral feedback
 - ✅ **Satisfaction scoring** (0.0-1.00) with LLM-as-judge evaluation
-- ✅ **Config file** auto-discovery (`.spec-driven.toml`)
-- ✅ **Two test interface patterns** (direct import or HTTP API)
-- ✅ **Deployment thresholds** (production: 95%, staging: 80%)
-- ✅ **Reward-hack resistant** - agent can't see test implementation
+- ✅ **Simple integration** - Just pipe output to script
+- ✅ **Reward-hack resistant** - Agent can't see technical details
 
 ## ⚠️ Warnings & Limitations
 
@@ -55,31 +67,30 @@ A prototype that demonstrates running BDD tests against AI-generated code, obfus
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/spec-driven-bdd-wrapper.git
+git clone https://github.com/johnjansen/spec-driven-bdd-wrapper.git
 cd spec-driven-bdd-wrapper
 
 # Install dependencies
 pip install -r requirements.txt
-
-# Or with uv
-uv sync
 ```
 
-### 2. Initialize a Project
+### 2. Use with ANY Test Framework
 
 ```bash
-# Create example config
-spec-driven init
+# Python/pytest
+pytest -v | python spec_driven_evaluate
 
-# Edit .spec-driven.toml for your project
+# JavaScript/Jest
+npm test | python spec_driven_evaluate
+
+# Go
+go test ./... -v | python spec_driven_evaluate
+
+# Rust
+cargo test | python spec_driven_evaluate
 ```
 
-### 3. Run Tests
-
-```bash
-# Auto-discover .spec-driven.toml and run tests
-spec-driven test
-```
+That's it! The wrapper auto-detects the framework format and obfuscates failures.
 
 ## 📖 How It Works
 

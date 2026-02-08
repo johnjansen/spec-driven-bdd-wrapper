@@ -1,0 +1,603 @@
+#!/usr/bin/env python3
+"""
+spec-driven-evaluate
+
+Universal obfuscation wrapper for ANY test framework.
+Read piped test output, obfuscate with LLM, return scored feedback.
+
+Usage:
+    pytest | python spec-driven-evaluate
+    npm test | python spec-driven-evaluate
+    go test ./... | python spec-driven-evaluate
+    cargo test | python spec-driven-evaluate
+"""
+
+import sys
+import re
+import json
+import requests
+from typing import Dict, List, Any, Tuple, Optional
+from pathlib import Path
+
+
+class TestOutputParser:
+    """Parse test output from multiple frameworks."""
+
+    def __init__(self):
+        self.formats = {
+            "pytest": self._parse_pytest,
+            "unittest": self._parse_unittest,
+            "jest": self._parse_jest,
+            "go": self._parse_go,
+            "cargo": self._parse_cargo,
+            "generic": self._parse_generic,
+        }
+
+    def detect_format(self, output: str) -> str:
+        """Auto-detect test framework from output."""
+        if "=== FAILURES ===" in output or "======" in output:
+            return "pytest"
+        elif "FAIL:" in output and ".go:" in output:
+            return "go"
+        elif "●" in output and ("FAIL" in output or Suites):
+            return "jest"
+        elif "FAILED" in output and "FAILURES" in output:
+            return "unittest"
+        elif "test result:" in output and "FAILED" in output:
+            return "cargo"
+        else:
+            return "generic"
+
+    def parse(self, output: str) -> Dict[str, Any]:
+        """Parse test output using detected format."""
+        format_type = self.detect_format(output)
+        parser = self.formats[format_type]
+        return parser(output)
+
+    def _parse_pytest(self, output: str) -> Dict[str, Any]:
+        """Parse pytest output."""
+        results = {
+            "format": "pytest",
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "failures": []
+        }
+
+        lines = output.split('\n')
+
+        for i, line in enumerate(lines):
+            # Summary line
+            if "= passed" in line or "= failed" in line:
+                match = re.search(r'(\d+) passed(?:, (\d+) failed)?(?:, (\d+) skipped)?', line)
+                if match:
+                    results["passed"] = int(match.group(1))
+                    if match.group(2):
+                        results["failed"] = int(match.group(2))
+                    if match.group(3):
+                        results["skipped"] = int(match.group(3))
+                    results["total"] = results["passed"] + results["failed"] + results["skipped"]
+
+            # Failure details
+            if line.startswith("FAILED "):
+                # Extract test name and location
+                test_name = line.replace("FAILED ", "").strip()
+                error_details = {
+                    "test": test_name,
+                    "raw_lines": []
+                }
+
+                # Capture the error snippet (next ~10 lines)
+                for j in range(i + 1, min(i + 15, len(lines))):
+                    error_details["raw_lines"].append(lines[j])
+                    if ">" in lines[j]:  # Usually marks end of traceback
+                        break
+
+                # Look for filename and line
+                full_error = "\n".join(error_details["raw_lines"])
+                file_match = re.search(r'File "([^"]+)", line (\d+)', full_error)
+                if file_match:
+                    error_details["file"] = file_match.group(1)
+                    error_details["line"] = int(file_match.group(2))
+
+                # Look for error type and message
+                error_match = re.search(r'(\w+Error): (.+)', full_error)
+                if error_match:
+                    error_details["error_type"] = error_match.group(1)
+                    error_details["error_message"] = error_match.group(2)
+
+                results["failures"].append(error_details)
+
+        return results
+
+    def _parse_unittest(self, output: str) -> Dict[str, Any]:
+        """Parse unittest output."""
+        results = {
+            "format": "unittest",
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "failures": []
+        }
+
+        lines = output.split('\n')
+
+        current_failure = None
+
+        for line in lines:
+            # Summary
+            if "Ran" in line and "test" in line:
+                match = re.search(r'Ran (\d+) test', line)
+                if match:
+                    results["total"] = int(match.group(1))
+
+            if "OK" in line:
+                results["passed"] = results["total"]
+
+            # Failure marker
+            if line.startswith("FAIL:") or line.startswith("ERROR:"):
+                if current_failure and "raw_lines" in current_failure:
+                    results["failures"].append(current_failure)
+
+                test_name = line.split(": ", 1)[1]
+                current_failure = {
+                    "test": test_name,
+                    "raw_lines": []
+                }
+
+            # Capture failure details
+            elif current_failure:
+                current_failure["raw_lines"].append(line)
+
+                # Extract file and line
+                file_match = re.search(r'File "([^"]+)", line (\d+)', line)
+                if file_match:
+                    current_failure["file"] = file_match.group(1)
+                    current_failure["line"] = int(file_match.group(2))
+
+        if current_failure and "raw_lines" in current_failure:
+            results["failures"].append(current_failure)
+
+        results["failed"] = len(results["failures"])
+        results["passed"] = results["total"] - results["failed"]
+
+        return results
+
+    def _parse_jest(self, output: str) -> Dict[str, Any]:
+        """Parse Jest output."""
+        results = {
+            "format": "jest",
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "failures": []
+        }
+
+        lines = output.split('\n')
+
+        for i, line in enumerate(lines):
+            # Test failure marker
+            if "●" in line and not any(x in line for x in ["● Suites", "● Tests", "● Snapshots"]):
+                test_name = line.replace("●", "").strip()
+                error_details = {
+                    "test": test_name,
+                    "raw_lines": []
+                }
+
+                # Capture error stack
+                for j in range(i + 1, min(i + 15, len(lines))):
+                    error_details["raw_lines"].append(lines[j])
+                    if lines[j].strip() == "":
+                        break
+
+                # Extract location
+                full_error = "\n".join(error_details["raw_lines"])
+                location_match = re.search(r'at [^\(]+\(([^:]+):(\d+)', full_error)
+                if location_match:
+                    error_details["file"] = location_match.group(1)
+                    error_details["line"] = int(location_match.group(2))
+
+                results["failures"].append(error_details)
+
+        # Extract summary (at end)
+        for line in lines:
+            if "Tests:" in line:
+                match = re.search(r'Tests:\s+(\d+) total,\s+(\d+) passed,\s+(\d+) failed', line)
+                if match:
+                    results["total"] = int(match.group(1))
+                    results["passed"] = int(match.group(2))
+                    results["failed"] = int(match.group(3))
+
+        results["skipped"] = results["total"] - results["passed"] - results["failed"]
+
+        return results
+
+    def _parse_go(self, output: str) -> Dict[str, Any]:
+        """Parse go test output."""
+        results = {
+            "format": "go",
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "failures": []
+        }
+
+        lines = output.split('\n')
+
+        current_failure = None
+
+        for line in lines:
+            # Failure marker
+            if line.startswith("FAIL:"):
+                if current_failure:
+                    results["failures"].append(current_failure)
+
+                test_name = line.replace("FAIL:", "").strip()
+                current_failure = {
+                    "test": test_name,
+                    "raw_lines": []
+                }
+
+            elif current_failure:
+                current_failure["raw_lines"].append(line)
+
+                # Extract file and line
+                file_match = re.search(r'([\w/]+\.go):(\d+):', line)
+                if file_match:
+                    current_failure["file"] = file_match.group(1)
+                    current_failure["line"] = int(file_match.group(2))
+
+                # End of failure
+                if "=== RUN" in line or "--- FAIL:" in line:
+                    if current_failure:
+                        results["failures"].append(current_failure)
+                    current_failure = None
+
+            # Summary
+            if "FAIL" in line and "passed" in line:
+                match = re.search(r'(\d+) passed, (\d+) failed', line)
+                if match:
+                    results["passed"] = int(match.group(1))
+                    results["failed"] = int(match.group(2))
+                    results["total"] = results["passed"] + results["failed"]
+
+        if current_failure:
+            results["failures"].append(current_failure)
+
+        return results
+
+    def _parse_cargo(self, output: str) -> Dict[str, Any]:
+        """Parse cargo test output."""
+        results = {
+            "format": "cargo",
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "failures": []
+        }
+
+        lines = output.split('\n')
+
+        for i, line in enumerate(lines):
+            # Test failure
+            if "test " in line and "FAILED" in line:
+                test_name = re.search(r'test\s+(.+?)\s+.*FAILED', line)
+                if test_name:
+                    error_details = {
+                        "test": test_name.group(1),
+                        "raw_lines": []
+                    }
+
+                    # Capture failure context
+                    for j in range(i + 1, min(i + 20, len(lines))):
+                        error_details["raw_lines"].append(lines[j])
+                        if lines[j].strip() == "" or "test " in lines[j]:
+                            break
+
+                    # Extract file and line
+                    full_error = "\n".join(error_details["raw_lines"])
+                    location_match = re.search(r'(\.rs):(\d+):', full_error)
+                    if location_match:
+                        error_details["file"] = location_match.group(1)
+                        error_details["line"] = int(location_match.group(2))
+
+                    results["failures"].append(error_details)
+
+            # Summary
+            if "test result:" in line:
+                if "FAILED" in line:
+                    # Look for counts before summary
+                    for j in range(max(0, i - 5), i):
+                        summary_match = re.search(r'test result:\s+(\w+).*(\d+) passed.*(\d+) failed', lines[j])
+                        if summary_match:
+                            results["passed"] = int(summary_match.group(2))
+                            results["failed"] = int(summary_match.group(3))
+                            results["total"] = results["passed"] + results["failed"]
+                            break
+
+        return results
+
+    def _parse_generic(self, output: str) -> Dict[str, Any]:
+        """Generic parser - extract anything that looks like failures."""
+        results = {
+            "format": "generic",
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "failures": []
+        }
+
+        lines = output.split('\n')
+
+        for line in lines:
+            # Look for common failure indicators
+            if any(marker in line for marker in ["FAIL:", "FAILED", "Error:", "Traceback", "panic:"]):
+                results["failed"] += 1
+                results["failures"].append({
+                    "test": line.strip(),
+                    "raw_lines": [line]
+                })
+
+        # Heuristic for passed (lines containing "pass", "ok", "success" minus failures)
+        pass_indicators = sum(1 for line in lines if any(word in line.lower() for word in ["pass", "ok", "success"]))
+        results["passed"] = max(0, pass_indicators - results["failed"])
+        results["total"] = results["passed"] + results["failed"]
+
+        return results
+
+
+class Obfuscator:
+    """Obfuscate test failures using LLM."""
+
+    def __init__(self, ollama_url: str = "http://localhost:11434", model: str = "llama3.1"):
+        self.ollama_url = ollama_url
+        self.model = model
+
+    def obfuscate(self, failures: List[Dict]) -> str:
+        """Translate technical failures to behavioral feedback."""
+        if not failures:
+            return "All tests passed!"
+
+        # Build prompt
+        prompt = self._build_obfuscation_prompt(failures)
+
+        try:
+            response = self._call_ollama(prompt)
+            return self._clean_response(response)
+        except Exception as e:
+            return self._fallback_obfuscation(failures)
+
+    def _build_obfuscation_prompt(self, failures: List[Dict]) -> str:
+        """Build prompt for LLM obfuscation."""
+        prompt = """
+You are translating test failures into behavioral feedback for an AI developer.
+
+IMPORTANT RULES:
+- HIDE: File names, line numbers, function names
+- HIDE: Stack traces, internal details
+- SHOW: What behavior failed, what was expected vs. actual
+- BE CONCISE: Each failure should be 1-3 sentences
+- USE CLARITY: Focus on what the spec expects, not how it's implemented
+
+Test failures to translate:
+
+"""
+
+        for failure in failures:
+            prompt += f"\nFailed test: {failure.get('test', 'Unknown test')}\n"
+
+            if "error_type" in failure:
+                prompt += f"Error type: {failure['error_type']}\n"
+
+            if "error_message" in failure:
+                prompt += f"Error message: {failure['error_message'][:200]}\n"
+
+            prompt += "\n"
+
+        prompt += """
+Translate each failure into behavioral feedback. Format as a numbered list:
+1. [Behavior problem description]
+2. [Behavior problem description]
+
+Return ONLY the translated feedback, nothing else.
+"""
+        return prompt
+
+    def _call_ollama(self, prompt: str) -> str:
+        """Call Ollama API."""
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.3,
+                "num_predict": 2000
+            }
+        }
+
+        response = requests.post(
+            f"{self.ollama_url}/api/generate",
+            json=payload,
+            timeout=20
+        )
+
+        response.raise_for_status()
+        data = response.json()
+
+        return data.get("response", "") or data.get("thinking", "")
+
+    def _clean_response(self, response: str) -> str:
+        """Clean up LLM response."""
+        return response.strip()
+
+    def _fallback_obfuscation(self, failures: List[Dict]) -> str:
+        """Fallback if LLM unavailable."""
+        lines = [f"Test failures detected: {len(failures)}"]
+
+        for failure in failures:
+            test_name = failure.get("test", "Unknown")
+            # Simplify - just show test name without file/line
+            clean_name = re.sub(r'.*[/\\]', '', test_name)
+            lines.append(f"- {clean_name} failed")
+
+        return "\n".join(lines)
+
+
+class SatisfactionScorer:
+    """Evaluate satisfaction score from test results."""
+
+    def __init__(self, ollama_url: str = "http://localhost:11434", model: str = "llama3.1"):
+        self.ollama_url = ollama_url
+        self.model = model
+
+    def evaluate(self, results: Dict, obfuscated_feedback: str) -> Tuple[float, str]:
+        """Evaluate satisfaction score (0.0-1.00)."""
+        summary = {
+            "total": results.get("total", 0),
+            "passed": results.get("passed", 0),
+            "failed": results.get("failed", 0)
+        }
+
+        if summary["total"] == 0:
+            return 0.0, "No tests to evaluate"
+
+        # All passed - perfect score
+        if summary["failed"] == 0:
+            return 1.00, "All tests passed successfully"
+
+        # Build prompt
+        prompt = self._build_scoring_prompt(summary, obfuscated_feedback)
+
+        try:
+            response = self._call_ollama(prompt)
+            return self._parse_score(response)
+        except Exception as e:
+            # Fallback: use pass rate
+            pass_rate = summary["passed"] / summary["total"]
+            return pass_rate, f"Used pass rate ({pass_rate:.1%}) as fallback"
+
+    def _build_scoring_prompt(self, summary: Dict, feedback: str) -> str:
+        """Build prompt for satisfaction scoring."""
+        pass_rate = summary["passed"] / summary["total"]
+
+        prompt = f"""
+Evaluate overall satisfaction score (0.0-1.00) for this implementation:
+
+Test results:
+- Total: {summary['total']}
+- Passed: {summary['passed']}
+- Failed: {summary['failed']}
+- Pass rate: {pass_rate:.1%}
+
+Behavioral feedback:
+{feedback}
+
+Consider:
+- Core functionality working? (most tests passing)
+- Failures severe or minor? (critical bugs vs edge cases)
+- Easy fixes or architectural issues?
+
+Return JSON:
+{{"score": 0.XX, "reasoning": "..."}}
+"""
+        return prompt
+
+    def _call_ollama(self, prompt: str) -> str:
+        """Call Ollama API."""
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.3,
+                "num_predict": 2000
+            }
+        }
+
+        response = requests.post(
+            f"{self.ollama_url}/api/generate",
+            json=payload,
+            timeout=20
+        )
+
+        response.raise_for_status()
+        data = response.json()
+
+        return data.get("response", "") or data.get("thinking", "")
+
+    def _parse_score(self, response: str) -> Tuple[float, str]:
+        """Parse score from LLM response."""
+        try:
+            data = json.loads(response)
+            return float(data["score"]), data.get("reasoning", "")
+        except json.JSONDecodeError:
+            # Try regex
+            match = re.search(r'"score"\s*:\s*(\d+\.?\d*)', response)
+            if match:
+                score = float(match.group(1))
+                reasoning = response[:200]
+                return score, reasoning
+
+        return 0.0, "Failed to parse score"
+
+
+def main():
+    """Main entry point - read stdin, evaluate, output feedback."""
+    # Read piped test output
+    test_output = sys.stdin.read()
+
+    if not test_output:
+        print("❌ No test output detected")
+        print("\nUsage:", file=sys.stderr)
+        print("  pytest | python spec-driven-evaluate", file=sys.stderr)
+        print("  npm test | python spec-driven-evaluate", file=sys.stderr)
+        print("  go test ./... | python spec-driven-evaluate", file=sys.stderr)
+        return 1
+
+    print("🧪 Analyzing test output...")
+
+    # Parse
+    parser = TestOutputParser()
+    results = parser.parse(test_output)
+
+    summary = results.get("summary", results)
+    print(f"📊 Framework: {results.get('format', 'unknown')}")
+    print(f"   {summary.get('passed', 0)} passed, {summary.get('failed', 0)} failed")
+
+    # If all passed
+    if summary.get("failed", 0) == 0:
+        print("\n✅ All tests passed! Satisfaction: 1.00/1.00")
+        return 0
+
+    # Obfuscate
+    print("🔍 Obfuscating failures...")
+    obfuscator = Obfuscator()
+    obfuscated = obfuscator.obfuscate(results.get("failures", []))
+
+    # Score
+    print("📈 Evaluating satisfaction score...")
+    scorer = SatisfactionScorer()
+    score, reasoning = scorer.evaluate(results, obfuscated)
+
+    # Format output
+    print("\n" + "=" * 80)
+    emoji = "🟢" if score >= 0.9 else "🟡" if score >= 0.7 else "🔴"
+    print(f"{emoji} TEST RESULTS - Satisfaction: {score:.2f}/1.00")
+    print("=" * 80)
+    print(f"\nReasoning:\n{reasoning}")
+    print("\n" + "=" * 80)
+    print("\nBEHAVIORAL FEEDBACK:")
+    print(obfuscated)
+    print("\n" + "=" * 80)
+
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
