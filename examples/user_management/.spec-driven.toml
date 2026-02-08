@@ -1,0 +1,66 @@
+# Spec-Driven Development Configuration
+# Location: Root of your project directory
+
+[project]
+name = "user-management-api"
+version = "0.1.0"
+
+[paths]
+# Directory where agent writes code (agent CAN see this)
+generated_code_dir = "generated_code"
+
+# Directory containing tests (agent CANNOT see this)
+test_dir = "features"
+
+# Test framework
+[test]
+runner = "behave"
+# For Behave: relative to test_dir
+features_path = "user_management.feature"
+steps_path = "steps/user_steps.py"
+
+# Output format
+output_format = "json.pretty"
+output_file = "test_results.json"
+
+[llm]
+# Obfuscation and scoring configuration
+model = "llama3.1"
+url = "http://localhost:11434"
+timeout = 20
+
+# Scoring thresholds
+[scoring]
+# Satisfaction score >= this to deploy
+production_threshold = 0.95
+staging_threshold = 0.80
+dev_threshold = 0.70
+
+# Score ranges
+[scoring.ranges]
+poor_start = 0.0
+poor_end = 0.3
+moderate_end = 0.7
+good_end = 0.9
+
+[wrapper]
+# Wrapper behavior
+use_satisfaction_scoring = true
+fallback_on_llm_failure = true
+show_trace_details_to_agent = false
+
+# Verbosity
+verbose = false
+show_ollama_prompts = false
+
+[obfuscation]
+# What to hide from agent
+hide_file_paths = true
+hide_line_numbers = true
+hide_function_names = true
+hide_stack_traces = true
+
+# What to show to agent
+show_behavioral_description = true
+show_expected_vs_actual = true
+show_contextual_hints = true

@@ -1,0 +1,33 @@
+[project]
+name = "spec-driven-bdd-wrapper"
+version = "1.0.0"
+description = "BDD obfuscation wrapper for spec-driven development with AI agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Spec-Driven Development Team"}
+]
+dependencies = [
+    "behave>=1.2.6",
+    "requests>=2.31.0",
+    "bcrypt>=4.0.0",
+    "toml>=0.10.2",
+]
+
+[project.scripts]
+spec-driven = "spec_driven.wrappers.behave_wrapper_v3:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = []
