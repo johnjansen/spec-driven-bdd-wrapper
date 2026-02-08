@@ -137,87 +137,103 @@ affecting core CRUD operations. The application is completely non-functional.
 
 ## 🔧 Configuration
 
-### .spec-driven.toml
+**No configuration needed!** The wrapper:
 
-```toml
-[project]
-name = "my-user-api"
+1. Reads test output from stdin (piped)
+2. Auto-detects framework format (pytest, Jest, go, cargo, etc.)
+3. Parses failures automatically
+4. Obfuscates with LLM
+5. Returns scored feedback
 
-[paths]
-# Where agent writes code
-generated_code_dir = "generated_code"
-
-# Where tests live (agent can't see)
-test_dir = "tests"
-
-[test]
-runner = "behave"
-
-# How tests exercise code:
-# - "direct_import": Import and call methods directly
-# - "http_test_client": Use HTTP client (Flask, FastAPI, etc.)
-interface.type = "http_test_client"
-
-[llm]
-model = "llama3.1"
-url = "http://localhost:11434"
-timeout = 20
-
-[scoring]
-# Thresholds for deployment decisions
-production_threshold = 0.95
-staging_threshold = 0.80
-dev_threshold = 0.70
+Optional: **Environment variables** for Ollama:
+```bash
+export OLLAMA_MODEL=llama3.1
+export OLLAMA_URL=http://localhost:11434
 ```
 
-## 📚 Examples
-
-See `examples/user_management/` for a complete working example:
+## 📚 Example Workflow
 
 ```bash
+# 1. Agent generates code (your_project/src/api.py)
+# 2. Run your existing tests
+pytest your_project/tests/ -v | python spec_driven_evaluate
+
+# Output:
+# 🔴 TEST RESULTS - Satisfaction: 0.65/1.00 (Moderate)
+#
+# Reasoning: 65% pass rate. Most core functionality works but
+# there are several edge case failures that need attention.
+#
+# BEHAVIORAL FEEDBACK:
+# 1. The user deletion operation fails to clean up reference tracking.
+# 2. Authentication timeouts are not handled correctly under load.
+# 3. Data validation is missing for negative number inputs.
+
+# 3. Agent improves code
+# 4. Run again
+pytest your_project/tests/ -v | python spec_driven_evaluate
+
+# Output:
+# 🟢 TEST RESULTS - Satisfaction: 0.95/1.00 (Excellent)
+#
+# Reasoning: 95% pass rate. All core functionality working correctly.
+
+# 5. Deploy when ready
+```
+
+### See Legacy Example
+
+The original Behave-based approach is preserved in `examples/user_management/`:
+```bash
 cd examples/user_management
-
-# View stub implementation (will fail)
-cat generated_code/api.py
-
-# Run tests - see 0.00/1.00 score
-spec-driven test
-
-# Copy working implementation
-cp example_implementation.py generated_code/api.py
-
-# Run tests - see 0.85+/1.00 score
-spec-driven test
+behave features/ | python ../spec_driven-evaluate
 ```
 
-## 🌐 Test Interface Patterns
+## 🌐 Usage Pattern
 
-### Option A: Direct Import
+The wrapper is a **universal pipe filter** - read any test output, parse it, obfuscate, score.
 
-```python
-# Tests import generated code directly
-from generated_code.api import UserAPI
+### Supported Frameworks
 
-api = UserAPI()
-response = api.create_user(email, password)
+**Python:**
+```bash
+pytest -v | python spec_driven_evaluate
+unittest discover -v | python spec_driven_evaluate
 ```
 
-**Pros:** Simple, fast, test internals
-
-### Option B: HTTP Integration
-
-```python
-# Tests exercise HTTP endpoints
-from generated_code.api import create_app
-
-app = create_app()
-client = app.test_client()
-response = client.post("/users", json={...})
+**JavaScript/TypeScript:**
+```bash
+npm test | python spec_driven_evaluate
+npm run test | python spec_driven_evaluate
 ```
 
-**Pros:** Production parity, tests contract, decoupled
+**Go:**
+```bash
+go test ./... -v | python spec_driven_evaluate
+```
 
-See `docs/TEST_INTERFACE.md` for details.
+**Rust:**
+```bash
+cargo test | python spec_driven_evaluate
+```
+
+**Custom:**
+```bash
+your_test_runner | python spec_driven_evaluate
+```
+
+### Why This Architecture Works
+
+**Problems with framework-specific:**
+- ❌ Tied to one ecosystem (e.g., Python/Behave only)
+- ❌ Can't use existing tests
+- ❌ Complex setup
+
+**Benefits of pipe-filter:**
+- ✅ Universal - works with any language/framework
+- ✅ Simple - just pipe output
+- ✅ Uses your existing tests
+- ✅ No migration needed
 
 ## 📊 Wrapper Versions
 
